@@ -6,21 +6,13 @@ Created on Tue Feb  9 22:48:08 2021
 @author: louisbard
 """
 
-
-"""
- Using EEGNet to classify P300 EEG data, using the sample dataset provided in:
-     https://www.kaggle.com/c/inria-bci-challenge/data
-   
- The two classes used from this dataset are:
-     0: Bad Feedback, when the selected item is different from the expected item.
-     1: Good Feedback, when the selected item is similar to the expected item.
-"""
+#importation des modules nécessaires 
 
 import numpy as np 
 
 import pandas as pd 
 
-# EEGNet-specific imports
+#importation du réseau EEGNet et API Keras
 
 from EEGModels import EEGNet
 
@@ -33,12 +25,12 @@ from tensorflow.keras import backend as K
 
 K.set_image_data_format('channels_last')
 
-# Sklearn metrics
+# Sklearn metrique
 
 from sklearn.metrics import roc_auc_score
 
 
-##################### Import, process data for model ######################
+##################### Importation des données prétraitées ######################
 
 train_labels = pd.read_csv('./data/TrainLabels.csv')
 
@@ -54,26 +46,26 @@ X_test = np.reshape(X_test,(3400,56,260))
 
 y_test = np.reshape(pd.read_csv('./data/true_labels.csv', header=None).values, 3400)
 
-# Partition
 
-X_train = X_train_valid[1360:,:]
-
-X_valid = X_train_valid[:1360,:]
-
-Y_train = y_train_valid[1360:]
-
-Y_valid = y_train_valid[:1360]
-
-# Data contains 56 channels and 260 time-points. Set the number of kernels to 1.
+# Les données contiennent 56 canaux et 260 points 
 
 kernels, chans, samples = 1, 56, 260
 
 
+# Partition
+
+X_test = X_train_valid[4080:]
+
+y_test = y_train_valid[4080:]
+
+X_train_valid= X_train_valid.reshape(X_train_valid.shape[0], chans, samples, kernels)
+
+X_train_valid = X_train_valid[:4080]
+
+y_train_valid = y_train_valid[:4080]
 
 
-
-
-# Convert data to NCHW (kernels, channels, samples) format. 
+# Conversion au format NCHW  
 
 X_train      = X_train.reshape(X_train.shape[0], chans, samples, kernels)
 
@@ -91,55 +83,75 @@ print(str(X_test.shape[0]) + ' test samples')
 
 ############################# EEGNet ##################################
 
-#kernels, chans, samples = 1, 60, 151
 
-# Configure the EEGNet-8,2,16 model with kernel length of 260 samples 
-model = EEGNet(nb_classes = 2, Chans = chans, Samples = samples, 
-               dropoutRate = 0.5, kernLength = 32, F1 = 8, D = 2, F2 = 16, 
+
+# Validation croisée à 4 plis 
+kfold = KFold(n_splits=4, shuffle=True)
+
+#
+fold_no = 1
+for train, test in kfold.split(X_train_valid,y_train_valid):
+
+  print(X_train_valid[train])
+
+  # Define the model architecture
+
+  
+
+ 
+  model = EEGNet(nb_classes = 2, Chans = chans, Samples = samples, 
+               dropoutRate = 0.5, kernLength = 100, F1 = 4, D = 2, F2 = 16, 
                dropoutType = 'Dropout')
 
-# Compile the model and set the optimizer
-model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', 
+  # Compilation du modèle 
+  model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', 
               metrics = ['accuracy'])
 
-# Set a valid path for system to record model checkpoints
-filepath = 'best_weights_bwbs_2.hdf5'
-checkpointer = ModelCheckpoint(filepath=filepath, verbose=1,
+  # Sauvegarde des poids 
+  filepath = 'best_weights_bwbs_2.hdf5'
+  checkpointer = ModelCheckpoint(filepath=filepath, verbose=1,
                                save_best_only=True)
-
-###############################################################################
-# Since the classification task is imbalanced (significantly more trials in one
-# class versus the others) can assign a weight to each class during 
-# optimization to balance it out.
-###############################################################################
-
-# Syntax is {class_1:weight_1, class_2:weight_2,...}.
+  
+  # Pondération en fonction de la répartition des classes 
  
-# Weighted loss
-weight_0 = 1/(len([y for y in y_train_valid if y == 0]))
-weight_1 = 1/(len([y for y in y_train_valid if y == 1]))
+  # Weighted loss
+  weight_0 = 1/(len([y for y in y_train_valid if y == 0]))
+  weight_1 = 1/(len([y for y in y_train_valid if y == 1]))
 
-class_weights = {0:weight_0, 1:weight_1}
+  class_weights = {0:weight_0, 1:weight_1}
 
 ################################################################################
-# Fit the model. Due to very small sample sizes this can get
-# pretty noisy run-to-run.
+# Fit du modèle
 ################################################################################
-fittedModel = model.fit(X_train, Y_train, batch_size = 34, epochs = 100, 
-                        verbose = 2, validation_data=(X_valid, Y_valid),
+  fittedModel = model.fit(X_train_valid[train], y_train_valid[train], batch_size = 34, epochs = 100, 
+                        verbose = 2, validation_data=(X_train_valid[test], y_train_valid[test]),
                         callbacks=[checkpointer], class_weight = class_weights)
 
-# Load optimal weights
-
-filepath = 'best_weights_bwbs_2.hdf5'
 
 
-model.load_weights(filepath)
+  # 
+  print('------------------------------------------------------------------------')
+  print(f'Training for fold {fold_no} ...')
 
-###############################################################################
-# Make prediction on test set.
-###############################################################################
+  
+  # Evaluation de la performance sur l'ensemble test
+  probs       = model.predict(X_train_valid[test])
+  preds       = probs.argmax(axis = -1)  
+  scores = model.evaluate(X_train_valid[test], y_train_valid[test], verbose=0)
 
+
+
+
+  auc         = roc_auc_score(y_train_valid[test],preds)
+  acc_per_fold.append(scores[1] * 100)
+  auc_per_fold.append(auc)
+
+  # On passe à un autre pli 
+  fold_no = fold_no + 1
+  
+
+# Evaluation finale sur l'ensemble de test 
+ 
 probs       = model.predict(X_test)
 preds       = probs.argmax(axis = -1)  
 acc         = np.mean(preds == y_test.argmax(axis=-1))
@@ -148,13 +160,6 @@ acc         = np.mean(preds == y_test.argmax(axis=-1))
 
 
 auc         = roc_auc_score(y_test,preds)
-
-
-
-
-print("Classification Accuracy: %f " % (acc))
-print("Area Under Curve: %f" % (auc))
-
 
 
 
