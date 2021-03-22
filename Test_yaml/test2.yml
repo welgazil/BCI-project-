@@ -1,0 +1,51 @@
+imports:
+  keras.models:
+    - Sequential
+    - Model
+  keras:
+    - layers
+    - Input
+
+
+Preprocessing:
+  donnees_path: lala.csv
+  labels_path: lolo.csv
+    
+
+  
+ 
+sequentiel:
+  - layers.Dense:
+      units: 32
+      activation: "'relu'"
+      input_shape: (64,)
+  - layers.Dense:
+      units: 32
+      activation: "'relu'"
+  - layers.Dense:
+      units: 10
+      activation: "'softmax'"
+
+
+Compile:
+  optimizer: 'rmsprop'
+  loss: 'categorical_crossentropy'
+
+Fit:
+ epochs: 10
+ batch_size: 128
+
+ 
+  
+
+
+
+
+
+
+      
+      
+     
+      
+      
+  
